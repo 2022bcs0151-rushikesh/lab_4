@@ -10,22 +10,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    - uses: actions/checkout@v3
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
+    - uses: actions/setup-python@v4
       with:
         python-version: "3.11"
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+    - run: pip install -r requirements.txt
 
-    - name: Train model
-      run: python scripts/train.py
+    - run: python scripts/train.py
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: |
@@ -38,8 +33,7 @@ jobs:
     needs: train
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    - uses: actions/checkout@v3
 
     - name: Install tools
       run: |
@@ -50,6 +44,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: artifacts
+        path: .
 
     - name: Read metric
       id: metric
@@ -69,7 +64,7 @@ jobs:
         if (( $(echo "$NEW > $OLD" | bc -l) )); then
           echo "deploy=true" >> $GITHUB_OUTPUT
         else
-          echo "<YOUR_ROLL_NO>----Metric did not improve"
+          echo "2022BCS0151----Metric did not improve"
           echo "deploy=false" >> $GITHUB_OUTPUT
         fi
 
