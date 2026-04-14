@@ -1,9 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.9'
-        }
-    }
+    agent any
 
     environment {
         DOCKER_IMAGE = "rushikesh2022bcs0151/wine-api:latest"
@@ -14,7 +10,10 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                python -m venv venv
+                apt update
+                apt install -y python3 python3-venv python3-pip
+
+                python3 -m venv venv
                 . venv/bin/activate
                 pip install -r requirements.txt
                 '''
@@ -25,7 +24,7 @@ pipeline {
             steps {
                 sh '''
                 . venv/bin/activate
-                python scripts/train.py
+                python3 scripts/train.py
                 echo "Name: RUSHIKESH"
                 echo "Roll No: 2022BCS0151"
                 '''
