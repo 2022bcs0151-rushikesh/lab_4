@@ -1,107 +1,74 @@
-name: Train & Deploy Model
+deploy:
+  runs-on: ubuntu-latest
+  needs: train
 
-on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
+  steps:
+  - name: Checkout code
+    uses: actions/checkout@v3
 
-jobs:
+  - name: Install tools
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y jq bc
 
-  train:
-    runs-on: ubuntu-latest
+  - name: Download model artifact
+    uses: actions/download-artifact@v4
+    with:
+      name: model
+      path: app/
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+  - name: Download metrics artifact
+    uses: actions/download-artifact@v4
+    with:
+      name: metrics
+      path: results/
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.11"
+  - name: Read new F1
+    id: metrics
+    run: |
+      NEW_F1=$(jq '.f1' results/metrics.json)
+      echo "NEW_F1=$NEW_F1" >> $GITHUB_ENV
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+  - name: Compare metrics
+    id: compare
+    run: |
+      OLD_F1=${{ vars.BEST_F1 }}
+      NEW_F1=$NEW_F1
 
-    - name: Train model
-      run: python scripts/train.py
+      echo "OLD=$OLD_F1"
+      echo "NEW=$NEW_F1"
 
-    - name: Upload model
-      uses: actions/upload-artifact@v4
-      with:
-        name: model
-        path: app/model.pkl
+      if (( $(echo "$NEW_F1 > $OLD_F1" | bc -l) )); then
+        echo "deploy=yes" >> $GITHUB_OUTPUT
+      else
+        echo "<YOUR_ROLL_NO>----Metric did not improve"
+        echo "deploy=no" >> $GITHUB_OUTPUT
+      fi
 
-    - name: Upload metrics
-      uses: actions/upload-artifact@v4
-      with:
-        name: metrics
-        path: results/metrics.json
+  - name: Stop if no improvement
+    if: steps.compare.outputs.deploy == 'no'
+    run: exit 0
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: train
+  - name: Login to DockerHub
+    if: steps.compare.outputs.deploy == 'yes'
+    run: |
+      echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+  - name: Build Docker image
+    if: steps.compare.outputs.deploy == 'yes'
+    run: |
+      docker build -t ${{ secrets.DOCKER_USERNAME }}/wine-api:latest .
 
-    - name: Download model artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: model
-        path: app/
+  - name: Push Docker image
+    if: steps.compare.outputs.deploy == 'yes'
+    run: |
+      docker push ${{ secrets.DOCKER_USERNAME }}/wine-api:latest
 
-    - name: Download metrics artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: metrics
-        path: results/
-
-    - name: Read new F1
-      id: metrics
-      run: |
-        NEW_F1=$(jq '.f1' results/metrics.json)
-        echo "new_f1=$NEW_F1" >> $GITHUB_OUTPUT
-
-    - name: Compare metrics
-      id: compare
-      run: |
-        echo "Best F1: ${{ vars.BEST_F1 }}"
-        echo "New F1:  ${{ steps.metrics.outputs.new_f1 }}"
-        PythonF1=${{ steps.metrics.outputs.new_f1 }}
-        BestF1=${{ vars.BEST_F1 }}
-        if (( $(echo "$PythonF1 <= $BestF1" | bc -l) )); then
-          echo "${{ secrets.ROLL_NO }} ---- Metric did not improve"
-          echo "deploy=no" >> $GITHUB_OUTPUT
-        else
-          echo "deploy=yes" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Stop if no improvement
-      if: steps.compare.outputs.deploy == 'no'
-      run: echo "Stopping deployment"
-
-    - name: Log in to DockerHub
-      if: steps.compare.outputs.deploy == 'yes'
-      run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-    - name: Build Docker image
-      if: steps.compare.outputs.deploy == 'yes'
-      run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/wine-model:latest .
-
-    - name: Push Docker image
-      if: steps.compare.outputs.deploy == 'yes'
-      run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/wine-model:latest
-
-    - name: Update Best Metric
-      if: steps.compare.outputs.deploy == 'yes'
-      uses: actions/github-script@v6
-      with:
-        github-token: ${{ secrets.GH_PAT }}
-        script: |
-          await github.rest.actions.updateRepoVariable({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            name: "BEST_F1",
-            value: "${{ steps.metrics.outputs.new_f1 }}"
-          })
+  - name: Update BEST_F1
+    if: steps.compare.outputs.deploy == 'yes'
+    run: |
+      curl -X PATCH \
+      -H "Authorization: token ${{ secrets.GH_PAT }}" \
+      -H "Accept: application/vnd.github+json" \
+      https://api.github.com/repos/${{ github.repository }}/actions/variables/BEST_F1 \
+      -d '{"name":"BEST_F1","value":"'"$NEW_F1"'"}'
