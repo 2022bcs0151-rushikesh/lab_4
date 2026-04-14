@@ -21,9 +21,8 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements.txt
 
-    # 🔥 IMPORTANT: change path if needed
     - name: Train model
-      run: python train.py
+      run: python scripts/train.py
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
