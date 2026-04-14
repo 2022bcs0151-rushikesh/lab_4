@@ -1,5 +1,9 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'python:3.9'
+        }
+    }
 
     environment {
         DOCKER_IMAGE = "rushikesh2022bcs0151/wine-api:latest"
@@ -10,7 +14,7 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                python3 -m venv venv
+                python -m venv venv
                 . venv/bin/activate
                 pip install -r requirements.txt
                 '''
